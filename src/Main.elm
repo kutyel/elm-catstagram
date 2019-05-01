@@ -4,6 +4,8 @@ import Browser exposing (Document, UrlRequest(..), application)
 import Browser.Navigation exposing (Key, load, pushUrl)
 import Html exposing (..)
 import Html.Attributes exposing (..)
+import Http exposing (Error, expectJson, get)
+import Json.Decode exposing (Decoder, field, list, string)
 import Url exposing (Url)
 
 
@@ -27,15 +29,19 @@ main =
 -- MODEL
 
 
-type alias Model =
-    { key : Key
-    , url : Url
-    }
+type Route
+    = Route Key Url
+
+
+type Model
+    = Failure
+    | Loading
+    | Success (List String) -- TODO: Success Route (List String)
 
 
 init : String -> Url -> Key -> ( Model, Cmd Msg )
-init flags url key =
-    ( Model key url, Cmd.none )
+init token url key =
+    ( Loading, getPosts token )
 
 
 
@@ -45,6 +51,7 @@ init flags url key =
 type Msg
     = Navigate UrlRequest
     | UrlChanged Url
+    | GotPosts (Result Error (List String))
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -53,15 +60,29 @@ update msg model =
         Navigate urlRequest ->
             case urlRequest of
                 Internal url ->
-                    ( model, pushUrl model.key (Url.toString url) )
+                    -- case model of
+                    -- TODO: Success (Route key _) _ ->
+                    --     ( model, pushUrl key (Url.toString url) )
+                    -- _ ->
+                    ( model, Cmd.none )
 
                 External href ->
                     ( model, load href )
 
         UrlChanged url ->
-            ( { model | url = url }
-            , Cmd.none
-            )
+            -- case model of
+            -- TODO: Success (Route key _) str ->
+            --     ( Success (Route key url) str, Cmd.none )
+            -- _ ->
+            ( model, Cmd.none )
+
+        GotPosts result ->
+            case result of
+                Ok posts ->
+                    ( Success posts, Cmd.none )
+
+                Err _ ->
+                    ( Failure, Cmd.none )
 
 
 
@@ -81,19 +102,49 @@ view : Model -> Document Msg
 view model =
     { title = "Elm Catstagram"
     , body =
-        [ text "The current URL is: "
-        , b [] [ text (Url.toString model.url) ]
-        , ul []
-            [ viewLink "/home"
-            , viewLink "/profile"
-            , viewLink "/reviews/the-century-of-the-self"
-            , viewLink "/reviews/public-opinion"
-            , viewLink "/reviews/shah-of-shahs"
-            ]
+        [ h1 []
+            [ a [ href "/" ] [ text "Catstagram" ] ]
+        , case model of
+            Failure ->
+                h2 [] [ text "An error occured :(" ]
+
+            Loading ->
+                viewSpinner
+
+            Success posts ->
+                ul []
+                    (List.map viewLink posts)
         ]
     }
+
+
+viewSpinner : Html msg
+viewSpinner =
+    div [ class "spinner" ]
+        [ div [] []
+        , div [] []
+        , div [] []
+        , div [] []
+        ]
 
 
 viewLink : String -> Html msg
 viewLink path =
     li [] [ a [ href path ] [ text path ] ]
+
+
+
+-- HTTP
+
+
+getPosts : String -> Cmd Msg
+getPosts token =
+    get
+        { url = "https://api.instagram.com/v1/users/self/media/recent/?access_token=" ++ token
+        , expect = expectJson GotPosts postDecoder
+        }
+
+
+postDecoder : Decoder (List String)
+postDecoder =
+    field "data" (list (field "link" string))

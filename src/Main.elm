@@ -4,8 +4,10 @@ import Browser exposing (Document, UrlRequest(..), application)
 import Browser.Navigation exposing (Key, load, pushUrl)
 import Html exposing (..)
 import Html.Attributes exposing (..)
+import Html.Keyed as Keyed
+import Html.Lazy exposing (lazy)
 import Http exposing (Error, expectJson, get)
-import Json.Decode exposing (Decoder, field, list, string)
+import Json.Decode exposing (Decoder, bool, field, int, list, map6, string)
 import Url exposing (Url)
 
 
@@ -29,6 +31,18 @@ main =
 -- MODEL
 
 
+type alias Post =
+    { id : String
+    , caption : String
+    , images : String
+    , likes : Int
+    , comments : Int
+    , user_has_liked : Bool
+
+    -- TODO: , comments : List String
+    }
+
+
 type Route
     = Route Key Url
 
@@ -36,7 +50,7 @@ type Route
 type Model
     = Failure
     | Loading
-    | Success (List String) -- TODO: Success Route (List String)
+    | Success (List Post) -- TODO: Success Route (List Post)
 
 
 init : String -> Url -> Key -> ( Model, Cmd Msg )
@@ -51,7 +65,7 @@ init token url key =
 type Msg
     = Navigate UrlRequest
     | UrlChanged Url
-    | GotPosts (Result Error (List String))
+    | GotPosts (Result Error (List Post))
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -100,7 +114,7 @@ subscriptions _ =
 
 view : Model -> Document Msg
 view model =
-    { title = "Elm Catstagram"
+    { title = "🐈 Elm Catstagram"
     , body =
         [ h1 []
             [ a [ href "/" ] [ text "Catstagram" ] ]
@@ -112,8 +126,9 @@ view model =
                 viewSpinner
 
             Success posts ->
-                ul []
-                    (List.map viewLink posts)
+                Keyed.node "div"
+                    [ class "photo-grid" ]
+                    (List.map viewKeyedPost posts)
         ]
     }
 
@@ -128,9 +143,42 @@ viewSpinner =
         ]
 
 
-viewLink : String -> Html msg
-viewLink path =
-    li [] [ a [ href path ] [ text path ] ]
+viewKeyedPost : Post -> ( String, Html msg )
+viewKeyedPost ({ id } as post) =
+    ( id, lazy viewPost post )
+
+
+viewPost : Post -> Html msg
+viewPost { id, caption, comments, images, user_has_liked, likes } =
+    figure [ class "grid-figure" ]
+        [ div [ class "grid-photo-wrap" ]
+            [ a [ href ("/view/" ++ id) ]
+                [ img [ src images, alt id, class "grid-photo" ] []
+                ]
+            ]
+        , figcaption []
+            [ p [] [ text caption ]
+            , div [ class "control-buttons" ]
+                [ button
+                    [ class
+                        (if user_has_liked then
+                            "liked"
+
+                         else
+                            ""
+                        )
+                    ]
+                    [ text ("♥ " ++ String.fromInt likes) ]
+                , a [ class "button", href ("/view/" ++ id) ]
+                    [ span
+                        [ class "comment-count" ]
+                        [ span [ class "speech-bubble" ]
+                            [ text (" " ++ String.fromInt comments) ]
+                        ]
+                    ]
+                ]
+            ]
+        ]
 
 
 
@@ -145,6 +193,16 @@ getPosts token =
         }
 
 
-postDecoder : Decoder (List String)
+postDecoder : Decoder (List Post)
 postDecoder =
-    field "data" (list (field "link" string))
+    field "data"
+        (list
+            (map6 Post
+                (field "id" string)
+                (field "caption" (field "text" string))
+                (field "images" (field "standard_resolution" (field "url" string)))
+                (field "likes" (field "count" int))
+                (field "comments" (field "count" int))
+                (field "user_has_liked" bool)
+            )
+        )

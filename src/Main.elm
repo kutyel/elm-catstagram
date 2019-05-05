@@ -4,6 +4,7 @@ import Browser exposing (Document, UrlRequest(..), application)
 import Browser.Navigation exposing (Key, load, pushUrl)
 import Html exposing (..)
 import Html.Attributes exposing (..)
+import Html.Events exposing (onClick)
 import Html.Keyed as Keyed
 import Html.Lazy exposing (lazy)
 import Http exposing (Error, expectJson, get)
@@ -38,8 +39,6 @@ type alias Post =
     , likes : Int
     , comments : Int
     , user_has_liked : Bool
-
-    -- TODO: , comments : List String
     }
 
 
@@ -50,7 +49,8 @@ type Route
 type Model
     = Failure
     | Loading
-    | Success (List Post) -- TODO: Success Route (List Post)
+    | Detail Post -- TODO: Comments : List String
+    | Home (List Post)
 
 
 init : String -> Url -> Key -> ( Model, Cmd Msg )
@@ -63,9 +63,10 @@ init token url key =
 
 
 type Msg
-    = Navigate UrlRequest
+    = Like Post Bool
     | UrlChanged Url
-    | GotPosts (Result Error (List Post))
+    | Navigate UrlRequest
+    | FetchedPosts (Result Error (List Post))
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -90,13 +91,53 @@ update msg model =
             -- _ ->
             ( model, Cmd.none )
 
-        GotPosts result ->
+        Like post liked ->
+            case model of
+                Detail _ ->
+                    ( Detail (updatePost post liked)
+                    , Cmd.none
+                    )
+
+                Home posts ->
+                    ( Home
+                        (List.map
+                            (\x ->
+                                if x == post then
+                                    updatePost post liked
+
+                                else
+                                    x
+                            )
+                            posts
+                        )
+                    , Cmd.none
+                    )
+
+                _ ->
+                    ( model, Cmd.none )
+
+        FetchedPosts result ->
             case result of
                 Ok posts ->
-                    ( Success posts, Cmd.none )
+                    ( Home posts, Cmd.none )
 
                 Err _ ->
                     ( Failure, Cmd.none )
+
+
+updatePost : Post -> Bool -> Post
+updatePost post liked =
+    { post
+        | user_has_liked = liked
+        , likes =
+            post.likes
+                + (if liked then
+                    1
+
+                   else
+                    -1
+                  )
+    }
 
 
 
@@ -125,7 +166,12 @@ view model =
             Loading ->
                 viewSpinner
 
-            Success posts ->
+            Detail post ->
+                div [ class "single-photo" ]
+                    [ viewPost post
+                    ]
+
+            Home posts ->
                 Keyed.node "div"
                     [ class "photo-grid" ]
                     (List.map viewKeyedPost posts)
@@ -133,7 +179,7 @@ view model =
     }
 
 
-viewSpinner : Html msg
+viewSpinner : Html Msg
 viewSpinner =
     div [ class "spinner" ]
         [ div [] []
@@ -143,13 +189,13 @@ viewSpinner =
         ]
 
 
-viewKeyedPost : Post -> ( String, Html msg )
+viewKeyedPost : Post -> ( String, Html Msg )
 viewKeyedPost ({ id } as post) =
     ( id, lazy viewPost post )
 
 
-viewPost : Post -> Html msg
-viewPost { id, caption, comments, images, user_has_liked, likes } =
+viewPost : Post -> Html Msg
+viewPost ({ id, caption, comments, images, user_has_liked, likes } as post) =
     figure [ class "grid-figure" ]
         [ div [ class "grid-photo-wrap" ]
             [ a [ href ("/view/" ++ id) ]
@@ -160,7 +206,8 @@ viewPost { id, caption, comments, images, user_has_liked, likes } =
             [ p [] [ text caption ]
             , div [ class "control-buttons" ]
                 [ button
-                    [ class
+                    [ onClick (Like post (not user_has_liked))
+                    , class
                         (if user_has_liked then
                             "liked"
 
@@ -173,7 +220,7 @@ viewPost { id, caption, comments, images, user_has_liked, likes } =
                     [ span
                         [ class "comment-count" ]
                         [ span [ class "speech-bubble" ]
-                            [ text (" " ++ String.fromInt comments) ]
+                            [ text (String.fromInt comments) ]
                         ]
                     ]
                 ]
@@ -189,7 +236,7 @@ getPosts : String -> Cmd Msg
 getPosts token =
     get
         { url = "https://api.instagram.com/v1/users/self/media/recent/?access_token=" ++ token
-        , expect = expectJson GotPosts postDecoder
+        , expect = expectJson FetchedPosts postDecoder
         }
 
 

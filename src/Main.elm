@@ -10,6 +10,39 @@ import Html.Lazy exposing (lazy)
 import Http exposing (Error, expectJson, get)
 import Json.Decode exposing (Decoder, bool, field, int, list, map6, string)
 import Url exposing (Url)
+import Url.Parser as P exposing ((</>), Parser, map, oneOf, s)
+
+
+
+-- ROUTE
+
+
+type Route
+    = Root
+    | View String
+
+
+parser : Parser (Route -> a) a
+parser =
+    oneOf
+        [ map Root P.top
+        , map View (s "view" </> P.string)
+        ]
+
+
+fromUrl : Url -> Route
+fromUrl url =
+    Maybe.withDefault Root (P.parse parser url)
+
+
+path : Route -> String
+path route =
+    case route of
+        Root ->
+            "/"
+
+        View postId ->
+            "/view/" ++ postId
 
 
 
@@ -42,20 +75,20 @@ type alias Post =
     }
 
 
-type Route
-    = Route Key Url
+type PageState a
+    = Failure
+    | Loading
+    | Success a
 
 
 type Model
-    = Failure
-    | Loading
-    | Detail Post -- TODO: Comments : List String
-    | Home (List Post)
+    = Home (PageState (List Post))
+    | Detail (PageState Post)
 
 
 init : String -> Url -> Key -> ( Model, Cmd Msg )
 init token url key =
-    ( Loading, getPosts token )
+    ( Home Loading, getPosts token )
 
 
 
@@ -75,40 +108,41 @@ update msg model =
         Navigate urlRequest ->
             case urlRequest of
                 Internal url ->
-                    -- case model of
-                    -- TODO: Success (Route key _) _ ->
-                    --     ( model, pushUrl key (Url.toString url) )
-                    -- _ ->
+                    -- TODO: ( model, pushUrl key (Url.toString url) )
                     ( model, Cmd.none )
 
                 External href ->
                     ( model, load href )
 
         UrlChanged url ->
-            -- case model of
-            -- TODO: Success (Route key _) str ->
-            --     ( Success (Route key url) str, Cmd.none )
-            -- _ ->
+            -- TODO: fromUrl url
             ( model, Cmd.none )
 
         Like post liked ->
             case model of
-                Detail _ ->
-                    ( Detail (updatePost post liked)
-                    , Cmd.none
-                    )
-
-                Home posts ->
+                Home (Success posts) ->
                     ( Home
-                        (List.map
-                            (\x ->
-                                if x == post then
-                                    updatePost post liked
+                        (Success
+                            (List.map
+                                (\p ->
+                                    if p == post then
+                                        { post
+                                            | user_has_liked = liked
+                                            , likes =
+                                                post.likes
+                                                    + (if liked then
+                                                        1
 
-                                else
-                                    x
+                                                       else
+                                                        -1
+                                                      )
+                                        }
+
+                                    else
+                                        p
+                                )
+                                posts
                             )
-                            posts
                         )
                     , Cmd.none
                     )
@@ -119,25 +153,10 @@ update msg model =
         FetchedPosts result ->
             case result of
                 Ok posts ->
-                    ( Home posts, Cmd.none )
+                    ( Home (Success posts), Cmd.none )
 
                 Err _ ->
-                    ( Failure, Cmd.none )
-
-
-updatePost : Post -> Bool -> Post
-updatePost post liked =
-    { post
-        | user_has_liked = liked
-        , likes =
-            post.likes
-                + (if liked then
-                    1
-
-                   else
-                    -1
-                  )
-    }
+                    ( Home Failure, Cmd.none )
 
 
 
@@ -160,21 +179,21 @@ view model =
         [ h1 []
             [ a [ href "/" ] [ text "Catstagram" ] ]
         , case model of
-            Failure ->
+            Home Failure ->
                 h2 [] [ text "An error occured :(" ]
 
-            Loading ->
-                viewSpinner
-
-            Detail post ->
+            Detail (Success post) ->
                 div [ class "single-photo" ]
                     [ viewPost post
                     ]
 
-            Home posts ->
+            Home (Success posts) ->
                 Keyed.node "div"
                     [ class "photo-grid" ]
                     (List.map viewKeyedPost posts)
+
+            _ ->
+                viewSpinner
         ]
     }
 

@@ -10,7 +10,7 @@ import Html.Lazy exposing (lazy)
 import Http exposing (Error, expectJson, get)
 import Json.Decode exposing (Decoder, bool, field, int, list, map6, string)
 import Url exposing (Url)
-import Url.Parser as P exposing ((</>), Parser, map, oneOf, s)
+import Url.Parser as P exposing ((</>), Parser, map, oneOf, parse, s, top)
 
 
 
@@ -18,30 +18,30 @@ import Url.Parser as P exposing ((</>), Parser, map, oneOf, s)
 
 
 type Route
-    = Root
-    | View String
+    = Home
+    | Detail String
 
 
 parser : Parser (Route -> a) a
 parser =
     oneOf
-        [ map Root P.top
-        , map View (s "view" </> P.string)
+        [ map Home top
+        , map Detail (s "view" </> P.string)
         ]
 
 
 fromUrl : Url -> Route
 fromUrl url =
-    Maybe.withDefault Root (P.parse parser url)
+    Maybe.withDefault Home (parse parser url)
 
 
 path : Route -> String
 path route =
     case route of
-        Root ->
+        Home ->
             "/"
 
-        View postId ->
+        Detail postId ->
             "/view/" ++ postId
 
 
@@ -55,7 +55,7 @@ main =
         { init = init
         , view = view
         , update = update
-        , subscriptions = subscriptions
+        , subscriptions = always Sub.none
         , onUrlChange = UrlChanged
         , onUrlRequest = Navigate
         }
@@ -75,20 +75,15 @@ type alias Post =
     }
 
 
-type PageState a
+type Model
     = Failure
     | Loading
-    | Success a
-
-
-type Model
-    = Home (PageState (List Post))
-    | Detail (PageState Post)
+    | Success Route (List Post)
 
 
 init : String -> Url -> Key -> ( Model, Cmd Msg )
 init token url key =
-    ( Home Loading, getPosts token )
+    ( Loading, getPosts token )
 
 
 
@@ -104,68 +99,55 @@ type Msg
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-    case msg of
-        Navigate urlRequest ->
+    case ( msg, model ) of
+        ( Navigate urlRequest, _ ) ->
             case urlRequest of
                 Internal url ->
-                    -- TODO: ( model, pushUrl key (Url.toString url) )
+                    -- TODO:  ( model, pushUrl key (Url.toString url) )
                     ( model, Cmd.none )
 
                 External href ->
                     ( model, load href )
 
-        UrlChanged url ->
-            -- TODO: fromUrl url
-            ( model, Cmd.none )
+        ( UrlChanged url, Success _ posts ) ->
+            ( Success (fromUrl url) posts, Cmd.none )
 
-        Like post liked ->
-            case model of
-                Home (Success posts) ->
-                    ( Home
-                        (Success
-                            (List.map
-                                (\p ->
-                                    if p == post then
-                                        { post
-                                            | user_has_liked = liked
-                                            , likes =
-                                                post.likes
-                                                    + (if liked then
-                                                        1
+        ( Like post liked, Success _ posts ) ->
+            ( Success
+                Home
+                (List.map
+                    (\p ->
+                        if p == post then
+                            { post
+                                | user_has_liked = liked
+                                , likes =
+                                    post.likes
+                                        + (if liked then
+                                            1
 
-                                                       else
-                                                        -1
-                                                      )
-                                        }
+                                           else
+                                            -1
+                                          )
+                            }
 
-                                    else
-                                        p
-                                )
-                                posts
-                            )
-                        )
-                    , Cmd.none
+                        else
+                            p
                     )
+                    posts
+                )
+            , Cmd.none
+            )
 
-                _ ->
-                    ( model, Cmd.none )
-
-        FetchedPosts result ->
+        ( FetchedPosts result, _ ) ->
             case result of
                 Ok posts ->
-                    ( Home (Success posts), Cmd.none )
+                    ( Success Home posts, Cmd.none )
 
                 Err _ ->
-                    ( Home Failure, Cmd.none )
+                    ( Failure, Cmd.none )
 
-
-
--- SUBSCRIPTIONS
-
-
-subscriptions : Model -> Sub Msg
-subscriptions _ =
-    Sub.none
+        ( _, _ ) ->
+            ( model, Cmd.none )
 
 
 
@@ -179,21 +161,28 @@ view model =
         [ h1 []
             [ a [ href "/" ] [ text "Catstagram" ] ]
         , case model of
-            Home Failure ->
+            Loading ->
+                viewSpinner
+
+            Failure ->
                 h2 [] [ text "An error occured :(" ]
 
-            Detail (Success post) ->
-                div [ class "single-photo" ]
-                    [ viewPost post
-                    ]
+            Success route posts ->
+                case route of
+                    Home ->
+                        Keyed.node "div"
+                            [ class "photo-grid" ]
+                            (List.map viewKeyedPost posts)
 
-            Home (Success posts) ->
-                Keyed.node "div"
-                    [ class "photo-grid" ]
-                    (List.map viewKeyedPost posts)
+                    Detail postId ->
+                        div [ class "single-photo" ]
+                            [ case List.head <| List.filter (\p -> p.id == postId) posts of
+                                Nothing ->
+                                    text "Could not find any post! :("
 
-            _ ->
-                viewSpinner
+                                Just post ->
+                                    viewPost post
+                            ]
         ]
     }
 

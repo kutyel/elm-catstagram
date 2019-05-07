@@ -8,9 +8,28 @@ import Html.Events exposing (onClick)
 import Html.Keyed as Keyed
 import Html.Lazy exposing (lazy)
 import Http exposing (Error, expectJson, get)
-import Json.Decode exposing (Decoder, bool, field, int, list, map6, string)
+import Json.Decode exposing (Decoder, bool, field, int, list, string, succeed)
+import Json.Decode.Pipeline exposing (required)
+import List.Extra exposing (find)
+import Regex exposing (Regex, fromString, never)
 import Url exposing (Url)
 import Url.Parser as P exposing ((</>), Parser, map, oneOf, parse, s, top)
+
+
+
+-- MAIN
+
+
+main : Program String Model Msg
+main =
+    application
+        { init = init
+        , view = view
+        , update = update
+        , subscriptions = always Sub.none
+        , onUrlChange = UrlChanged
+        , onUrlRequest = LinkClicked
+        }
 
 
 
@@ -46,22 +65,6 @@ path route =
 
 
 
--- MAIN
-
-
-main : Program String Model Msg
-main =
-    application
-        { init = init
-        , view = view
-        , update = update
-        , subscriptions = always Sub.none
-        , onUrlChange = UrlChanged
-        , onUrlRequest = Navigate
-        }
-
-
-
 -- MODEL
 
 
@@ -93,14 +96,14 @@ init token url key =
 type Msg
     = Like Post Bool
     | UrlChanged Url
-    | Navigate UrlRequest
+    | LinkClicked UrlRequest
     | FetchedPosts (Result Error (List Post))
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case ( msg, model ) of
-        ( Navigate urlRequest, _ ) ->
+        ( LinkClicked urlRequest, _ ) ->
             case urlRequest of
                 Internal url ->
                     -- TODO:  ( model, pushUrl key (Url.toString url) )
@@ -176,7 +179,7 @@ view model =
 
                     Detail postId ->
                         div [ class "single-photo" ]
-                            [ case List.head <| List.filter (\p -> p.id == postId) posts of
+                            [ case find (\{ id } -> id == postId) posts of
                                 Nothing ->
                                     text "Could not find any post! :("
 
@@ -211,7 +214,7 @@ viewPost ({ id, caption, comments, images, user_has_liked, likes } as post) =
                 ]
             ]
         , figcaption []
-            [ p [] [ text caption ]
+            [ p [] (replaceHashtags caption) -- TODO: fix the rest of the description
             , div [ class "control-buttons" ]
                 [ button
                     [ onClick (Like post (not user_has_liked))
@@ -237,6 +240,26 @@ viewPost ({ id, caption, comments, images, user_has_liked, likes } as post) =
 
 
 
+-- HASHTAG
+
+
+hashtag : Regex
+hashtag =
+    Maybe.withDefault never <| fromString "#(\\w+)"
+
+
+replaceHashtags : String -> List (Html Msg)
+replaceHashtags str =
+    List.map (\{ match } -> viewHashtag match) (Regex.find hashtag str)
+
+
+viewHashtag : String -> Html Msg
+viewHashtag str =
+    -- TODO: fix the link to Instagram #hashtag page
+    a [ href ("https://www.instagram.com/explore/tags/" ++ str) ] [ text (str ++ " ") ]
+
+
+
 -- HTTP
 
 
@@ -252,12 +275,12 @@ postDecoder : Decoder (List Post)
 postDecoder =
     field "data"
         (list
-            (map6 Post
-                (field "id" string)
-                (field "caption" (field "text" string))
-                (field "images" (field "standard_resolution" (field "url" string)))
-                (field "likes" (field "count" int))
-                (field "comments" (field "count" int))
-                (field "user_has_liked" bool)
+            (succeed Post
+                |> required "id" string
+                |> required "caption" (field "text" string)
+                |> required "images" (field "standard_resolution" (field "url" string))
+                |> required "likes" (field "count" int)
+                |> required "comments" (field "count" int)
+                |> required "user_has_liked" bool
             )
         )

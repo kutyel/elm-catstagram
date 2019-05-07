@@ -11,7 +11,6 @@ import Http exposing (Error, expectJson, get)
 import Json.Decode exposing (Decoder, bool, field, int, list, string, succeed)
 import Json.Decode.Pipeline exposing (required)
 import List.Extra exposing (find)
-import Regex exposing (Regex, fromString, never)
 import Url exposing (Url)
 import Url.Parser as P exposing ((</>), Parser, map, oneOf, parse, s, top)
 
@@ -75,6 +74,7 @@ type alias Post =
     , likes : Int
     , comments : Int
     , user_has_liked : Bool
+    , tags : List String
     }
 
 
@@ -85,7 +85,7 @@ type Model
 
 
 init : String -> Url -> Key -> ( Model, Cmd Msg )
-init token url key =
+init token _ _ =
     ( Loading, getPosts token )
 
 
@@ -105,7 +105,7 @@ update msg model =
     case ( msg, model ) of
         ( LinkClicked urlRequest, _ ) ->
             case urlRequest of
-                Internal url ->
+                Internal _ ->
                     -- TODO:  ( model, pushUrl key (Url.toString url) )
                     ( model, Cmd.none )
 
@@ -206,7 +206,7 @@ viewKeyedPost ({ id } as post) =
 
 
 viewPost : Post -> Html Msg
-viewPost ({ id, caption, comments, images, user_has_liked, likes } as post) =
+viewPost ({ id, caption, comments, images, user_has_liked, likes, tags } as post) =
     figure [ class "grid-figure" ]
         [ div [ class "grid-photo-wrap" ]
             [ a [ href ("/view/" ++ id) ]
@@ -214,7 +214,11 @@ viewPost ({ id, caption, comments, images, user_has_liked, likes } as post) =
                 ]
             ]
         , figcaption []
-            [ p [] (replaceHashtags caption) -- TODO: fix the rest of the description
+            [ p []
+                (text
+                    (Maybe.withDefault "" <| List.head <| String.split "#" caption)
+                    :: List.map viewHashtag tags
+                )
             , div [ class "control-buttons" ]
                 [ button
                     [ onClick (Like post (not user_has_liked))
@@ -239,24 +243,9 @@ viewPost ({ id, caption, comments, images, user_has_liked, likes } as post) =
         ]
 
 
-
--- HASHTAG
-
-
-hashtag : Regex
-hashtag =
-    Maybe.withDefault never <| fromString "#(\\w+)"
-
-
-replaceHashtags : String -> List (Html Msg)
-replaceHashtags str =
-    List.map (\{ match } -> viewHashtag match) (Regex.find hashtag str)
-
-
 viewHashtag : String -> Html Msg
 viewHashtag str =
-    -- TODO: fix the link to Instagram #hashtag page
-    a [ href ("https://www.instagram.com/explore/tags/" ++ str) ] [ text (str ++ " ") ]
+    a [ href ("https://www.instagram.com/explore/tags/" ++ str) ] [ text ("#" ++ str ++ " ") ]
 
 
 
@@ -282,5 +271,6 @@ postDecoder =
                 |> required "likes" (field "count" int)
                 |> required "comments" (field "count" int)
                 |> required "user_has_liked" bool
+                |> required "tags" (list string)
             )
         )

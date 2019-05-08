@@ -53,16 +53,6 @@ fromUrl url =
     Maybe.withDefault Home (parse parser url)
 
 
-path : Route -> String
-path route =
-    case route of
-        Home ->
-            "/"
-
-        Detail postId ->
-            "/view/" ++ postId
-
-
 
 -- MODEL
 
@@ -78,15 +68,24 @@ type alias Post =
     }
 
 
-type Model
+type Posts
     = Failure
     | Loading
-    | Success Route (List Post)
+    | Success (List Post)
+
+
+type alias Model =
+    { key : Key
+    , posts : Posts
+    , route : Route
+    , apiKey : String
+    }
 
 
 init : String -> Url -> Key -> ( Model, Cmd Msg )
-init token _ _ =
-    ( Loading, getPosts token )
+init apiKey url key =
+    -- TODO: prevent re-fetching the posts when navigating back
+    ( { key = key, route = fromUrl url, posts = Loading, apiKey = apiKey }, getPosts apiKey )
 
 
 
@@ -102,55 +101,58 @@ type Msg
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-    case ( msg, model ) of
-        ( LinkClicked urlRequest, _ ) ->
+    case msg of
+        LinkClicked urlRequest ->
             case urlRequest of
-                Internal _ ->
-                    -- TODO:  ( model, pushUrl key (Url.toString url) )
-                    ( model, Cmd.none )
+                Internal url ->
+                    ( model, pushUrl model.key (Url.toString url) )
 
                 External href ->
                     ( model, load href )
 
-        ( UrlChanged url, Success _ posts ) ->
-            ( Success (fromUrl url) posts, Cmd.none )
+        UrlChanged url ->
+            ( { model | route = fromUrl url }, Cmd.none )
 
-        ( Like post liked, Success _ posts ) ->
-            ( Success
-                Home
-                (List.map
-                    (\p ->
-                        if p == post then
-                            { post
-                                | user_has_liked = liked
-                                , likes =
-                                    post.likes
-                                        + (if liked then
-                                            1
+        Like post liked ->
+            case model.posts of
+                Success posts ->
+                    ( { model
+                        | posts =
+                            Success
+                                (List.map
+                                    (\p ->
+                                        if p == post then
+                                            { post
+                                                | user_has_liked = liked
+                                                , likes =
+                                                    post.likes
+                                                        + (if liked then
+                                                            1
 
-                                           else
-                                            -1
-                                          )
-                            }
+                                                           else
+                                                            -1
+                                                          )
+                                            }
 
-                        else
-                            p
+                                        else
+                                            p
+                                    )
+                                    posts
+                                )
+                      }
+                    , Cmd.none
                     )
-                    posts
-                )
-            , Cmd.none
-            )
 
-        ( FetchedPosts result, _ ) ->
+                _ ->
+                    ( model, Cmd.none )
+
+        FetchedPosts result ->
             case result of
                 Ok posts ->
-                    ( Success Home posts, Cmd.none )
+                    ( { model | posts = Success posts }, Cmd.none )
 
                 Err _ ->
-                    ( Failure, Cmd.none )
-
-        ( _, _ ) ->
-            ( model, Cmd.none )
+                    ( { model | posts = Failure }, Cmd.none )
 
 
 
@@ -163,15 +165,15 @@ view model =
     , body =
         [ h1 []
             [ a [ href "/" ] [ text "Catstagram" ] ]
-        , case model of
+        , case model.posts of
             Loading ->
                 viewSpinner
 
             Failure ->
                 h2 [] [ text "An error occured :(" ]
 
-            Success route posts ->
-                case route of
+            Success posts ->
+                case model.route of
                     Home ->
                         Keyed.node "div"
                             [ class "photo-grid" ]
@@ -184,6 +186,7 @@ view model =
                                     text "Could not find any post! :("
 
                                 Just post ->
+                                    -- TODO: display comments as well
                                     viewPost post
                             ]
         ]

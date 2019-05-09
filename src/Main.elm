@@ -93,7 +93,6 @@ type alias Model =
 
 init : String -> Url -> Key -> ( Model, Cmd Msg )
 init apiKey url key =
-    -- TODO: prevent re-fetching the posts when navigating back
     ( { key = key, route = fromUrl url, posts = Loading, apiKey = apiKey }, getPosts apiKey )
 
 
@@ -106,7 +105,7 @@ type Msg
     | UrlChanged Url
     | LinkClicked UrlRequest
     | FetchedPosts (Result Error (List Post))
-    | FetchedComments Post (Result Error (List Comment))
+    | FetchedComments String (Result Error (List Comment))
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -121,7 +120,12 @@ update msg model =
                     ( model, load href )
 
         UrlChanged url ->
-            ( { model | route = fromUrl url }, Cmd.none )
+            case fromUrl url of
+                Home ->
+                    ( { model | route = Home }, Cmd.none )
+
+                Detail postId ->
+                    ( { model | route = Detail postId }, getComments model.apiKey postId )
 
         FetchedPosts result ->
             case result of
@@ -131,7 +135,7 @@ update msg model =
                 Err _ ->
                     ( { model | posts = Failure }, Cmd.none )
 
-        FetchedComments post result ->
+        FetchedComments postId result ->
             case result of
                 Ok comments ->
                     case model.posts of
@@ -140,14 +144,14 @@ update msg model =
                                 | posts =
                                     Success
                                         (List.map
-                                            (\p ->
-                                                if p == post then
+                                            (\({ id } as post) ->
+                                                if id == postId then
                                                     { post
                                                         | comments = comments
                                                     }
 
                                                 else
-                                                    p
+                                                    post
                                             )
                                             posts
                                         )
@@ -302,12 +306,14 @@ viewComments comments =
                         [ p []
                             [ strong [] [ text from ]
                             , text txt
-                            , button [ class "remove-comment" ] [ text "✖️" ]
+                            , button [ class "remove-comment" ] [ text "✖️" ] -- TODO: allow to remove comments
                             ]
                         ]
                 )
                 comments
             )
+
+        -- TODO: form to add comments
         ]
 
 
@@ -323,11 +329,11 @@ getPosts token =
         }
 
 
-getComments : String -> Post -> Cmd Msg
-getComments token post =
+getComments : String -> String -> Cmd Msg
+getComments token postId =
     get
-        { url = "https://api.instagram.com/v1/media/" ++ post.id ++ "/comments?access_token=" ++ token
-        , expect = expectJson (FetchedComments post) commentDecoder
+        { url = "https://api.instagram.com/v1/media/" ++ postId ++ "/comments?access_token=" ++ token
+        , expect = expectJson (FetchedComments postId) commentDecoder
         }
 
 

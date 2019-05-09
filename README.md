@@ -1,3 +1,20 @@
 # elm-catstragram
 
-🌳 Catstagram in Elm!
+Catstagram in Elm! 🌳🐈
+
+![catstagram](elm-catstagram.png)
+
+## Local Development
+
+```sh
+$ npm i && npm start
+```
+
+## Usage
+
+You need to get your own Instagram API_TOKEN and add a `.env` file:
+
+```sh
+# .env
+API_TOKEN=xxxxxxxxxx.xxxxxxx.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```

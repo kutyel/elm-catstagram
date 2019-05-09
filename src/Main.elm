@@ -62,8 +62,8 @@ type alias Post =
     , caption : String
     , images : String
     , likes : Int
-    , num_comments : Int
-    , user_has_liked : Bool
+    , numComments : Int
+    , liked : Bool
     , tags : List String
     , comments : List Comment
     }
@@ -73,7 +73,7 @@ type alias Comment =
     { id : String
     , from : String
     , txt : String
-    , created_time : String
+    , createdTime : String
     }
 
 
@@ -171,7 +171,7 @@ update msg model =
                                     (\p ->
                                         if p == post then
                                             { post
-                                                | user_has_liked = liked
+                                                | liked = liked
                                                 , likes =
                                                     post.likes
                                                         + (if liked then
@@ -250,7 +250,7 @@ viewKeyedPost ({ id } as post) =
 
 
 viewPost : Post -> Html Msg
-viewPost ({ id, caption, num_comments, images, user_has_liked, likes, tags } as post) =
+viewPost ({ id, caption, numComments, images, liked, likes, tags } as post) =
     figure [ class "grid-figure" ]
         [ div [ class "grid-photo-wrap" ]
             [ a [ href ("/view/" ++ id) ]
@@ -265,9 +265,9 @@ viewPost ({ id, caption, num_comments, images, user_has_liked, likes, tags } as 
                 )
             , div [ class "control-buttons" ]
                 [ button
-                    [ onClick (Like post (not user_has_liked))
+                    [ onClick (Like post (not liked))
                     , class
-                        (if user_has_liked then
+                        (if liked then
                             "liked"
 
                          else
@@ -279,7 +279,7 @@ viewPost ({ id, caption, num_comments, images, user_has_liked, likes, tags } as 
                     [ span
                         [ class "comment-count" ]
                         [ span [ class "speech-bubble" ]
-                            [ text (String.fromInt num_comments) ]
+                            [ text (String.fromInt numComments) ]
                         ]
                     ]
                 ]

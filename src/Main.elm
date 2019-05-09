@@ -9,7 +9,7 @@ import Html.Keyed as Keyed
 import Html.Lazy exposing (lazy)
 import Http exposing (Error, expectJson, get)
 import Json.Decode exposing (Decoder, bool, field, int, list, string, succeed)
-import Json.Decode.Pipeline exposing (required)
+import Json.Decode.Pipeline exposing (hardcoded, required)
 import List.Extra exposing (find)
 import Url exposing (Url)
 import Url.Parser as P exposing ((</>), Parser, map, oneOf, parse, s, top)
@@ -62,9 +62,18 @@ type alias Post =
     , caption : String
     , images : String
     , likes : Int
-    , comments : Int
+    , num_comments : Int
     , user_has_liked : Bool
     , tags : List String
+    , comments : List Comment
+    }
+
+
+type alias Comment =
+    { id : String
+    , from : String
+    , txt : String
+    , created_time : String
     }
 
 
@@ -97,6 +106,7 @@ type Msg
     | UrlChanged Url
     | LinkClicked UrlRequest
     | FetchedPosts (Result Error (List Post))
+    | FetchedComments Post (Result Error (List Comment))
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -112,6 +122,44 @@ update msg model =
 
         UrlChanged url ->
             ( { model | route = fromUrl url }, Cmd.none )
+
+        FetchedPosts result ->
+            case result of
+                Ok posts ->
+                    ( { model | posts = Success posts }, Cmd.none )
+
+                Err _ ->
+                    ( { model | posts = Failure }, Cmd.none )
+
+        FetchedComments post result ->
+            case result of
+                Ok comments ->
+                    case model.posts of
+                        Success posts ->
+                            ( { model
+                                | posts =
+                                    Success
+                                        (List.map
+                                            (\p ->
+                                                if p == post then
+                                                    { post
+                                                        | comments = comments
+                                                    }
+
+                                                else
+                                                    p
+                                            )
+                                            posts
+                                        )
+                              }
+                            , Cmd.none
+                            )
+
+                        _ ->
+                            ( model, Cmd.none )
+
+                Err _ ->
+                    ( { model | posts = Failure }, Cmd.none )
 
         Like post liked ->
             case model.posts of
@@ -146,14 +194,6 @@ update msg model =
                 _ ->
                     ( model, Cmd.none )
 
-        FetchedPosts result ->
-            case result of
-                Ok posts ->
-                    ( { model | posts = Success posts }, Cmd.none )
-
-                Err _ ->
-                    ( { model | posts = Failure }, Cmd.none )
-
 
 
 -- VIEW
@@ -181,14 +221,15 @@ view model =
 
                     Detail postId ->
                         div [ class "single-photo" ]
-                            [ case find (\{ id } -> id == postId) posts of
+                            (case find (\{ id } -> id == postId) posts of
                                 Nothing ->
-                                    text "Could not find any post! :("
+                                    [ text "Could not find any post! :(" ]
 
                                 Just post ->
-                                    -- TODO: display comments as well
-                                    viewPost post
-                            ]
+                                    [ viewPost post
+                                    , viewComments post.comments
+                                    ]
+                            )
         ]
     }
 
@@ -209,7 +250,7 @@ viewKeyedPost ({ id } as post) =
 
 
 viewPost : Post -> Html Msg
-viewPost ({ id, caption, comments, images, user_has_liked, likes, tags } as post) =
+viewPost ({ id, caption, num_comments, images, user_has_liked, likes, tags } as post) =
     figure [ class "grid-figure" ]
         [ div [ class "grid-photo-wrap" ]
             [ a [ href ("/view/" ++ id) ]
@@ -238,7 +279,7 @@ viewPost ({ id, caption, comments, images, user_has_liked, likes, tags } as post
                     [ span
                         [ class "comment-count" ]
                         [ span [ class "speech-bubble" ]
-                            [ text (String.fromInt comments) ]
+                            [ text (String.fromInt num_comments) ]
                         ]
                     ]
                 ]
@@ -251,6 +292,25 @@ viewHashtag str =
     a [ href ("https://www.instagram.com/explore/tags/" ++ str) ] [ text ("#" ++ str ++ " ") ]
 
 
+viewComments : List Comment -> Html Msg
+viewComments comments =
+    div [ class "comments" ]
+        [ div [ class "comments-list" ]
+            (List.map
+                (\{ txt, from } ->
+                    div [ class "comment" ]
+                        [ p []
+                            [ strong [] [ text from ]
+                            , text txt
+                            , button [ class "remove-comment" ] [ text "✖️" ]
+                            ]
+                        ]
+                )
+                comments
+            )
+        ]
+
+
 
 -- HTTP
 
@@ -260,6 +320,14 @@ getPosts token =
     get
         { url = "https://api.instagram.com/v1/users/self/media/recent/?access_token=" ++ token
         , expect = expectJson FetchedPosts postDecoder
+        }
+
+
+getComments : String -> Post -> Cmd Msg
+getComments token post =
+    get
+        { url = "https://api.instagram.com/v1/media/" ++ post.id ++ "/comments?access_token=" ++ token
+        , expect = expectJson (FetchedComments post) commentDecoder
         }
 
 
@@ -275,5 +343,19 @@ postDecoder =
                 |> required "comments" (field "count" int)
                 |> required "user_has_liked" bool
                 |> required "tags" (list string)
+                |> hardcoded []
+            )
+        )
+
+
+commentDecoder : Decoder (List Comment)
+commentDecoder =
+    field "data"
+        (list
+            (succeed Comment
+                |> required "id" string
+                |> required "from" (field "username" string)
+                |> required "text" string
+                |> required "created_time" string
             )
         )

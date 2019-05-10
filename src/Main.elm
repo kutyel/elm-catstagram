@@ -93,7 +93,7 @@ type alias Model =
 
 init : String -> Url -> Key -> ( Model, Cmd Msg )
 init apiKey url key =
-    ( { key = key, route = fromUrl url, posts = Loading, apiKey = apiKey }, getPosts apiKey )
+    ( Model key Loading (fromUrl url) apiKey, getPosts apiKey )
 
 
 
@@ -104,6 +104,7 @@ type Msg
     = Like Post Bool
     | UrlChanged Url
     | LinkClicked UrlRequest
+    | RemoveComment Post String
     | FetchedPosts (Result Error (List Post))
     | FetchedComments String (Result Error (List Comment))
 
@@ -198,6 +199,31 @@ update msg model =
                 _ ->
                     ( model, Cmd.none )
 
+        RemoveComment post commentId ->
+            case model.posts of
+                Success posts ->
+                    ( { model
+                        | posts =
+                            Success
+                                (List.map
+                                    (\({ comments } as p) ->
+                                        if p == post then
+                                            { post
+                                                | comments = List.filter (.id >> (/=) commentId) comments
+                                            }
+
+                                        else
+                                            p
+                                    )
+                                    posts
+                                )
+                      }
+                    , Cmd.none
+                    )
+
+                _ ->
+                    ( model, Cmd.none )
+
 
 
 -- VIEW
@@ -225,13 +251,13 @@ view model =
 
                     Detail postId ->
                         div [ class "single-photo" ]
-                            (case find (\{ id } -> id == postId) posts of
+                            (case find (.id >> (==) postId) posts of
                                 Nothing ->
                                     [ text "Could not find any post! :(" ]
 
                                 Just post ->
                                     [ viewPost post
-                                    , viewComments post.comments
+                                    , viewComments post
                                     ]
                             )
         ]
@@ -296,17 +322,17 @@ viewHashtag str =
     a [ href ("https://www.instagram.com/explore/tags/" ++ str) ] [ text ("#" ++ str ++ " ") ]
 
 
-viewComments : List Comment -> Html Msg
-viewComments comments =
+viewComments : Post -> Html Msg
+viewComments ({ comments } as post) =
     div [ class "comments" ]
         [ div [ class "comments-list" ]
             (List.map
-                (\{ txt, from } ->
+                (\{ id, txt, from } ->
                     div [ class "comment" ]
                         [ p []
                             [ strong [] [ text from ]
                             , text txt
-                            , button [ class "remove-comment" ] [ text "✖️" ] -- TODO: allow to remove comments
+                            , button [ class "remove-comment", onClick (RemoveComment post id) ] [ text "✖" ]
                             ]
                         ]
                 )

@@ -1,4 +1,4 @@
-# elm-catstragram
+# elm-catstagram
 
 Catstagram in Elm! 🌳🐈
 

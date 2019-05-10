@@ -4,13 +4,15 @@ import Browser exposing (Document, UrlRequest(..), application)
 import Browser.Navigation exposing (Key, load, pushUrl)
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Html.Events exposing (onClick)
+import Html.Events exposing (onClick, onInput, onSubmit)
 import Html.Keyed as Keyed
 import Html.Lazy exposing (lazy)
 import Http exposing (Error, expectJson, get)
 import Json.Decode exposing (Decoder, bool, field, int, list, string, succeed)
 import Json.Decode.Pipeline exposing (hardcoded, required)
 import List.Extra exposing (find)
+import Prng.Uuid as Uuid
+import Random.Pcg.Extended exposing (Seed, initialSeed, step)
 import Url exposing (Url)
 import Url.Parser as P exposing ((</>), Parser, map, oneOf, parse, s, top)
 
@@ -19,7 +21,7 @@ import Url.Parser as P exposing ((</>), Parser, map, oneOf, parse, s, top)
 -- MAIN
 
 
-main : Program String Model Msg
+main : Program Flags Model Msg
 main =
     application
         { init = init
@@ -73,7 +75,16 @@ type alias Comment =
     { id : String
     , from : String
     , txt : String
-    , createdTime : String
+    }
+
+
+type alias Flags =
+    ( String, Int, List Int )
+
+
+type alias FormState =
+    { author : String
+    , comment : String
     }
 
 
@@ -85,15 +96,27 @@ type Posts
 
 type alias Model =
     { key : Key
+    , seed : Seed
     , posts : Posts
     , route : Route
     , apiKey : String
+    , form : FormState
     }
 
 
-init : String -> Url -> Key -> ( Model, Cmd Msg )
-init apiKey url key =
-    ( Model key Loading (fromUrl url) apiKey, getPosts apiKey )
+init : Flags -> Url -> Key -> ( Model, Cmd Msg )
+init ( apiKey, sd, seedExtension ) url key =
+    let
+        route =
+            fromUrl url
+
+        seed =
+            initialSeed sd seedExtension
+
+        form =
+            FormState "" ""
+    in
+    ( Model key seed Loading route apiKey form, getPosts apiKey )
 
 
 
@@ -103,8 +126,11 @@ init apiKey url key =
 type Msg
     = Like Post Bool
     | UrlChanged Url
+    | ChangeAuthor String
+    | ChangeComment String
     | LinkClicked UrlRequest
     | RemoveComment Post String
+    | AddComment Post FormState
     | FetchedPosts (Result Error (List Post))
     | FetchedComments String (Result Error (List Comment))
 
@@ -112,6 +138,20 @@ type Msg
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        ChangeAuthor author ->
+            let
+                form =
+                    model.form
+            in
+            ( { model | form = { form | author = author } }, Cmd.none )
+
+        ChangeComment comment ->
+            let
+                form =
+                    model.form
+            in
+            ( { model | form = { form | comment = comment } }, Cmd.none )
+
         LinkClicked urlRequest ->
             case urlRequest of
                 Internal url ->
@@ -126,7 +166,24 @@ update msg model =
                     ( { model | route = Home }, Cmd.none )
 
                 Detail postId ->
-                    ( { model | route = Detail postId }, getComments model.apiKey postId )
+                    case model.posts of
+                        Success posts ->
+                            ( { model | route = Detail postId }
+                            , case find (.id >> (==) postId) posts of
+                                Nothing ->
+                                    Cmd.none
+
+                                Just { comments } ->
+                                    case comments of
+                                        [] ->
+                                            getComments model.apiKey postId
+
+                                        _ ->
+                                            Cmd.none
+                            )
+
+                        _ ->
+                            ( model, Cmd.none )
 
         FetchedPosts result ->
             case result of
@@ -224,6 +281,40 @@ update msg model =
                 _ ->
                     ( model, Cmd.none )
 
+        AddComment post { author, comment } ->
+            case model.posts of
+                Success posts ->
+                    let
+                        ( newUuid, newSeed ) =
+                            step Uuid.generator model.seed
+
+                        uuid =
+                            Uuid.toString newUuid
+                    in
+                    ( { model
+                        | seed = newSeed
+                        , form = FormState "" ""
+                        , posts =
+                            Success
+                                (List.map
+                                    (\({ comments } as p) ->
+                                        if p == post then
+                                            { post
+                                                | comments = Comment uuid author comment :: comments
+                                            }
+
+                                        else
+                                            p
+                                    )
+                                    posts
+                                )
+                      }
+                    , Cmd.none
+                    )
+
+                _ ->
+                    ( model, Cmd.none )
+
 
 
 -- VIEW
@@ -257,7 +348,7 @@ view model =
 
                                 Just post ->
                                     [ viewPost post
-                                    , viewComments post
+                                    , viewComments model.form post
                                     ]
                             )
         ]
@@ -280,7 +371,11 @@ viewKeyedPost ({ id } as post) =
 
 
 viewPost : Post -> Html Msg
-viewPost ({ id, caption, numComments, images, liked, likes, tags } as post) =
+viewPost ({ id, caption, numComments, images, liked, likes, tags, comments } as post) =
+    let
+        length =
+            List.length comments
+    in
     figure [ class "grid-figure" ]
         [ div [ class "grid-photo-wrap" ]
             [ a [ href ("/view/" ++ id) ]
@@ -308,8 +403,16 @@ viewPost ({ id, caption, numComments, images, liked, likes, tags } as post) =
                 , a [ class "button", href ("/view/" ++ id) ]
                     [ span
                         [ class "comment-count" ]
-                        [ span [ class "speech-bubble" ]
-                            [ text (String.fromInt numComments) ]
+                        [ span [ class "speech-bubble" ] []
+                        , text
+                            (String.fromInt
+                                (if length == 0 then
+                                    numComments
+
+                                 else
+                                    length
+                                )
+                            )
                         ]
                     ]
                 ]
@@ -322,8 +425,8 @@ viewHashtag str =
     a [ href ("https://www.instagram.com/explore/tags/" ++ str) ] [ text ("#" ++ str ++ " ") ]
 
 
-viewComments : Post -> Html Msg
-viewComments ({ comments } as post) =
+viewComments : FormState -> Post -> Html Msg
+viewComments ({ author, comment } as form) ({ comments } as post) =
     div [ class "comments" ]
         [ div [ class "comments-list" ]
             (List.map
@@ -338,8 +441,11 @@ viewComments ({ comments } as post) =
                 )
                 comments
             )
-
-        -- TODO: form to add comments
+        , Html.form [ class "comment-form", onSubmit (AddComment post form) ]
+            [ input [ type_ "text", placeholder "author", value author, onInput ChangeAuthor ] []
+            , input [ type_ "text", placeholder "comment", value comment, onInput ChangeComment ] []
+            , input [ type_ "submit", hidden True ] []
+            ]
         ]
 
 
@@ -388,6 +494,5 @@ commentDecoder =
                 |> required "id" string
                 |> required "from" (field "username" string)
                 |> required "text" string
-                |> required "created_time" string
             )
         )

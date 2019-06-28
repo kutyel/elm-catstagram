@@ -372,10 +372,6 @@ viewKeyedPost ({ id } as post) =
 
 viewPost : Post -> Html Msg
 viewPost ({ id, caption, numComments, images, liked, likes, tags, comments } as post) =
-    let
-        length =
-            List.length comments
-    in
     figure [ class "grid-figure" ]
         [ div [ class "grid-photo-wrap" ]
             [ a [ href ("/view/" ++ id) ]
@@ -406,11 +402,12 @@ viewPost ({ id, caption, numComments, images, liked, likes, tags, comments } as 
                         [ span [ class "speech-bubble" ] []
                         , text
                             (String.fromInt
-                                (if length == 0 then
-                                    numComments
+                                (case comments of
+                                    [] ->
+                                        numComments
 
-                                 else
-                                    length
+                                    xs ->
+                                        List.length xs
                                 )
                             )
                         ]

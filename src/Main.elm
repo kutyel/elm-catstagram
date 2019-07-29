@@ -135,6 +135,31 @@ type Msg
     | FetchedComments String (Result Error (List Comment))
 
 
+updatePost : Model -> String -> (Post -> Post) -> ( Model, Cmd Msg )
+updatePost model postId f =
+    case model.posts of
+        Success posts ->
+            ( { model
+                | posts =
+                    Success
+                        (List.map
+                            (\({ id } as post) ->
+                                if id == postId then
+                                    f post
+
+                                else
+                                    post
+                            )
+                            posts
+                        )
+              }
+            , Cmd.none
+            )
+
+        _ ->
+            ( model, Cmd.none )
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
@@ -196,90 +221,42 @@ update msg model =
         FetchedComments postId result ->
             case result of
                 Ok comments ->
-                    case model.posts of
-                        Success posts ->
-                            ( { model
-                                | posts =
-                                    Success
-                                        (List.map
-                                            (\({ id } as post) ->
-                                                if id == postId then
-                                                    { post
-                                                        | comments = comments
-                                                    }
-
-                                                else
-                                                    post
-                                            )
-                                            posts
-                                        )
-                              }
-                            , Cmd.none
-                            )
-
-                        _ ->
-                            ( model, Cmd.none )
+                    updatePost model
+                        postId
+                        (\post ->
+                            { post
+                                | comments = comments
+                            }
+                        )
 
                 Err _ ->
                     ( { model | posts = Failure }, Cmd.none )
 
-        Like post liked ->
-            case model.posts of
-                Success posts ->
-                    ( { model
-                        | posts =
-                            Success
-                                (List.map
-                                    (\p ->
-                                        if p == post then
-                                            { post
-                                                | liked = liked
-                                                , likes =
-                                                    post.likes
-                                                        + (if liked then
-                                                            1
+        Like { id } liked ->
+            updatePost model
+                id
+                (\post ->
+                    { post
+                        | liked = liked
+                        , likes =
+                            post.likes
+                                + (if liked then
+                                    1
 
-                                                           else
-                                                            -1
-                                                          )
-                                            }
+                                   else
+                                    -1
+                                  )
+                    }
+                )
 
-                                        else
-                                            p
-                                    )
-                                    posts
-                                )
-                      }
-                    , Cmd.none
-                    )
-
-                _ ->
-                    ( model, Cmd.none )
-
-        RemoveComment post commentId ->
-            case model.posts of
-                Success posts ->
-                    ( { model
-                        | posts =
-                            Success
-                                (List.map
-                                    (\({ comments } as p) ->
-                                        if p == post then
-                                            { post
-                                                | comments = List.filter (.id >> (/=) commentId) comments
-                                            }
-
-                                        else
-                                            p
-                                    )
-                                    posts
-                                )
-                      }
-                    , Cmd.none
-                    )
-
-                _ ->
-                    ( model, Cmd.none )
+        RemoveComment ({ id } as post) commentId ->
+            updatePost model
+                id
+                (\{ comments } ->
+                    { post
+                        | comments = List.filter (.id >> (/=) commentId) comments
+                    }
+                )
 
         AddComment post { author, comment } ->
             case model.posts of

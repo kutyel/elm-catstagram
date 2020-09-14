@@ -18,3 +18,8 @@ You need to get your own Instagram API_TOKEN and add a `.env` file:
 # .env
 API_TOKEN=xxxxxxxxxx.xxxxxxx.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
+
+## TODO
+
+- [ ] Migrate to new API endpoints (thanks Instagram 🤦🏼‍♂️)
+- [ ] Migrate as much CSS as possible to `elm-ui` 💅🏼

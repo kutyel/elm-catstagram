@@ -2,12 +2,12 @@ module Main exposing (main)
 
 import Browser exposing (Document, UrlRequest(..), application)
 import Browser.Navigation exposing (Key, load, pushUrl)
-import Html exposing (..)
-import Html.Attributes exposing (..)
+import Html exposing (Html, a, button, div, figcaption, figure, h1, h2, img, input, p, span, strong, text)
+import Html.Attributes exposing (alt, class, hidden, href, placeholder, src, type_, value)
 import Html.Events exposing (onClick, onInput, onSubmit)
 import Html.Keyed as Keyed
 import Html.Lazy exposing (lazy)
-import Http exposing (Error, expectJson, get)
+import Http exposing (Error(..), expectJson, get)
 import Json.Decode exposing (Decoder, bool, field, int, list, string, succeed)
 import Json.Decode.Pipeline exposing (hardcoded, required)
 import List.Extra exposing (find)
@@ -89,7 +89,7 @@ type alias FormState =
 
 
 type Posts
-    = Failure
+    = Failure String
     | Loading
     | Success (List Post)
 
@@ -215,8 +215,8 @@ update msg model =
                 Ok posts ->
                     ( { model | posts = Success posts }, Cmd.none )
 
-                Err _ ->
-                    ( { model | posts = Failure }, Cmd.none )
+                Err error ->
+                    ( { model | posts = Failure <| errorToString error }, Cmd.none )
 
         FetchedComments postId result ->
             case result of
@@ -229,8 +229,8 @@ update msg model =
                             }
                         )
 
-                Err _ ->
-                    ( { model | posts = Failure }, Cmd.none )
+                Err error ->
+                    ( { model | posts = Failure <| errorToString error }, Cmd.none )
 
         Like { id } liked ->
             updatePost model
@@ -307,8 +307,8 @@ view model =
             Loading ->
                 viewSpinner
 
-            Failure ->
-                h2 [] [ text "An error occured :(" ]
+            Failure err ->
+                h2 [] [ text <| "Error: " ++ err ]
 
             Success posts ->
                 case model.route of
@@ -330,6 +330,31 @@ view model =
                             )
         ]
     }
+
+
+errorToString : Http.Error -> String
+errorToString error =
+    case error of
+        BadUrl url ->
+            "The URL " ++ url ++ " was invalid"
+
+        Timeout ->
+            "Unable to reach the server, try again"
+
+        NetworkError ->
+            "Unable to reach the server, check your network connection"
+
+        BadStatus 500 ->
+            "The server had a problem, try again later"
+
+        BadStatus 400 ->
+            "Verify your information and try again"
+
+        BadStatus _ ->
+            "Unknown error"
+
+        BadBody errorMessage ->
+            errorMessage
 
 
 viewSpinner : Html Msg
